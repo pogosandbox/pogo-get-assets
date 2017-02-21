@@ -9,13 +9,15 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 require('dotenv').config({ silent: true });
 const pogobuf = require("pogobuf");
+const POGOProtos = require("node-pogo-protos");
 const logger = require("winston");
 const moment = require("moment");
+const fs = require("fs-promise");
 function Main() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
             let login = new pogobuf.PTCLogin();
-            login.setProxy(process.env.PROXY);
+            login.setProxy(process.env.proxy);
             let token = yield login.login(process.env.user, process.env.password);
             let client = new pogobuf.Client({
                 authType: 'ptc',
@@ -29,6 +31,9 @@ function Main() {
             });
             yield client.init(false);
             yield client.batchStart().batchCall();
+            let assets = yield client.getAssetDigest(1 /* IOS */, '', '', '', 5702);
+            let assetsDigests = assets.digest;
+            yield fs.writeFile('assets.digest.json', JSON.stringify(assetsDigests, null, 4), 'utf8');
         }
         catch (e) {
             logger.error(e);
