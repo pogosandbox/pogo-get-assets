@@ -5,14 +5,21 @@
   "main": "index.js",
   "author": "niico",
   "license": "MIT",
-  "engines" : { "node" : ">=6.0.0" },
+  "engines": {
+    "node": ">=6.0.0"
+  },
   "dependencies": {
+    "@types/request": "0.0.40",
+    "@types/request-promise": "^4.1.33",
+    "bfj": "^2.1.2",
     "bluebird": "^3.4.7",
     "dotenv": "^4.0.0",
     "fs-promise": "^1.0.0",
     "lodash": "^4.17.4",
-    "pogobuf": "pogosandbox/pogobuf",
     "moment": "^2.17.1",
+    "pogobuf": "pogosandbox/pogobuf",
+    "request": "^2.79.0",
+    "request-promise": "^4.1.1",
     "winston": "^2.3.1"
   },
   "devDependencies": {
