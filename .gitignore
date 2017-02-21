@@ -1,0 +1,7 @@
+node_modules
+.http-mitm-proxy
+data/*
+snorlax/*
+.env
+ios.dump*/*
+*.log
