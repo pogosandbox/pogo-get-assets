@@ -16,24 +16,26 @@ const _ = require("lodash");
 const moment = require("moment");
 const fs = require("fs-promise");
 const request = require("request-promise");
-const bfj = require('bfj');
+let crypto = require('crypto');
+let globalAssets = null;
 function getAssetDigest(client) {
     return __awaiter(this, void 0, void 0, function* () {
         if (fs.existsSync('data/asset.digest.json')) {
             logger.info('Get asset digest from disk...');
             let content = yield fs.readFile('data/asset.digest.json', 'utf8');
-            return JSON.parse(content);
+            globalAssets = JSON.parse(content);
+            return globalAssets;
         }
         else {
             logger.info('Get asset digest from server...');
-            let assets = yield client.getAssetDigest(1 /* IOS */, '', '', '', 5702);
-            _.each(assets.digest, digest => {
+            globalAssets = yield client.getAssetDigest(1 /* IOS */, '', '', '', 5702);
+            _.each(globalAssets.digest, digest => {
                 // convert buffer to hex string so it's readable
                 digest.key = digest.key.toString('hex');
             });
             logger.info('Save asset digest to file...');
-            yield fs.writeFile('data/asset.digest.json', JSON.stringify(assets, null, 4), 'utf8');
-            return assets;
+            yield fs.writeFile('data/asset.digest.json', JSON.stringify(globalAssets, null, 4), 'utf8');
+            return globalAssets;
         }
     });
 }
@@ -54,36 +56,53 @@ function downloadAssets(client, assets) {
         yield fs.writeFile('data/.skip', 'skip', 'utf8');
     });
 }
-function Main() {
+function getEncryptedFiles() {
     return __awaiter(this, void 0, void 0, function* () {
-        try {
-            yield fs.mkdir('data');
-            logger.info('Login...');
-            let login = new pogobuf.PTCLogin();
-            if (process.env.proxy)
-                login.setProxy(process.env.proxy);
-            let token = yield login.login(process.env.user, process.env.password);
-            let client = new pogobuf.Client({
-                authType: 'ptc',
-                authToken: token,
-                version: 4500,
-                useHashingServer: false,
-                hashingKey: null,
-                mapObjectsThrottling: false,
-                includeRequestTypeInResponse: true,
-                proxy: process.env.proxy,
-            });
-            yield client.init(false);
-            logger.info('First request...');
-            client.batchStart().getPlayer('FR', 'en', 'Europe/Paris');
-            yield client.batchCall();
-            let assets = yield getAssetDigest(client);
-            logger.info('%d assets to download', assets.digest.length);
-            yield downloadAssets(client, assets);
-        }
-        catch (e) {
-            logger.error(e);
-        }
+        yield fs.mkdir('data');
+        logger.info('Login...');
+        let login = new pogobuf.PTCLogin();
+        if (process.env.proxy)
+            login.setProxy(process.env.proxy);
+        let token = yield login.login(process.env.user, process.env.password);
+        let client = new pogobuf.Client({
+            authType: 'ptc',
+            authToken: token,
+            version: 4500,
+            useHashingServer: false,
+            hashingKey: null,
+            mapObjectsThrottling: false,
+            includeRequestTypeInResponse: true,
+            proxy: process.env.proxy,
+        });
+        yield client.init(false);
+        logger.info('First request...');
+        client.batchStart().getPlayer('FR', 'en', 'Europe/Paris');
+        yield client.batchCall();
+        let assets = yield getAssetDigest(client);
+        logger.info('%d assets to download', assets.digest.length);
+        yield downloadAssets(client, assets);
+    });
+}
+function xor(a, b) {
+    let length = Math.max(a.length, b.length);
+    let buffer = new Buffer(length);
+    for (let i = 0; i < length; ++i) {
+        buffer[i] = a[i] ^ b[i];
+    }
+    return buffer;
+}
+function decrypt() {
+    return __awaiter(this, void 0, void 0, function* () {
+        let bundle = 'pokemon_icon_001';
+        let data = yield fs.readFile(`data/${bundle}`);
+        let assetInfo = _.find(globalAssets.digest, asset => asset.bundle_name === bundle);
+        let iv = data.slice(1, 17);
+        let encrypted = data.slice(18, data.length - 20);
+        let mask = new Buffer('50464169243B5D473752673E6B7A3477', 'hex');
+        let key = xor(mask, new Buffer(assetInfo.key, 'hex'));
+        let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
+        let decrypted = decipher.update(encrypted); // Buffer.concat([decipher.update(encrypted) , decipher.final()]);
+        yield fs.writeFile(`data/${bundle}.png`, decrypted);
     });
 }
 logger.remove(logger.transports.Console);
@@ -94,5 +113,17 @@ logger.add(logger.transports.Console, {
     'colorize': true,
     'level': 'debug',
 });
+function Main() {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            // await getEncryptedFiles();
+            yield getAssetDigest(null);
+            yield decrypt();
+        }
+        catch (e) {
+            logger.error(e);
+        }
+    });
+}
 Main().then(() => logger.info('Done.'));
 //# sourceMappingURL=index.js.map
