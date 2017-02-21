@@ -85,7 +85,7 @@ function getEncryptedFiles() {
 }
 function xor(a, b) {
     let length = Math.max(a.length, b.length);
-    let buffer = new Buffer(length);
+    let buffer = Buffer.alloc(length);
     for (let i = 0; i < length; ++i) {
         buffer[i] = a[i] ^ b[i];
     }
@@ -95,13 +95,15 @@ function decrypt() {
     return __awaiter(this, void 0, void 0, function* () {
         let bundle = 'pokemon_icon_001';
         let data = yield fs.readFile(`data/${bundle}`);
+        if (data[0] !== 1)
+            throw new Error('Incorrect data in file');
         let assetInfo = _.find(globalAssets.digest, asset => asset.bundle_name === bundle);
         let iv = data.slice(1, 17);
         let encrypted = data.slice(18, data.length - 20);
-        let mask = new Buffer('50464169243B5D473752673E6B7A3477', 'hex');
-        let key = xor(mask, new Buffer(assetInfo.key, 'hex'));
+        let mask = Buffer.from('50464169243B5D473752673E6B7A3477', 'hex');
+        let key = xor(mask, Buffer.from(assetInfo.key, 'hex'));
         let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
-        let decrypted = decipher.update(encrypted); // Buffer.concat([decipher.update(encrypted) , decipher.final()]);
+        let decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
         yield fs.writeFile(`data/${bundle}.png`, decrypted);
     });
 }
