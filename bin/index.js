@@ -33,6 +33,8 @@ function getAssetDigest(client) {
                 // convert buffer to hex string so it's readable
                 digest.key = digest.key.toString('hex');
             });
+            // get only 2d sprites
+            globalAssets.digest = _.filter(globalAssets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
             logger.info('Save asset digest to file...');
             yield fs.writeFile('data/asset.digest.json', JSON.stringify(globalAssets, null, 4), 'utf8');
             return globalAssets;
@@ -46,19 +48,21 @@ function downloadAssets(client, assets) {
         let idx = 0;
         logger.info('Starting to download assets...');
         yield Bluebird.map(assets.digest, (asset) => __awaiter(this, void 0, void 0, function* () {
-            logger.info('Get asset from %s (%d, %d)', asset.bundle_name, ++idx, assets.digest.length);
             let response = yield client.getDownloadURLs([asset.asset_id]);
             let data = yield request.get(response.download_urls[0].url);
             yield fs.writeFile(`data/${asset.bundle_name}`, data);
             logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, assets.digest.length);
             yield Bluebird.delay(_.random(450, 550));
-        }));
+        }), { concurrency: 1 });
         yield fs.writeFile('data/.skip', 'skip', 'utf8');
     });
 }
 function getEncryptedFiles() {
     return __awaiter(this, void 0, void 0, function* () {
-        yield fs.mkdir('data');
+        try {
+            yield fs.mkdir('data');
+        }
+        catch (e) { }
         logger.info('Login...');
         let login = new pogobuf.PTCLogin();
         if (process.env.proxy)
@@ -99,9 +103,11 @@ function decrypt() {
             throw new Error('Incorrect data in file');
         let assetInfo = _.find(globalAssets.digest, asset => asset.bundle_name === bundle);
         let iv = data.slice(1, 17);
-        let encrypted = data.slice(18, data.length - 20);
-        let mask = Buffer.from('50464169243B5D473752673E6B7A3477', 'hex');
+        let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
         let key = xor(mask, Buffer.from(assetInfo.key, 'hex'));
+        let encrypted = data.slice(18, data.length - 20);
+        if ((encrypted.length & 0x0F) !== 0)
+            throw new Error('Invalid data length');
         let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
         let decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
         yield fs.writeFile(`data/${bundle}.png`, decrypted);
@@ -118,8 +124,8 @@ logger.add(logger.transports.Console, {
 function Main() {
     return __awaiter(this, void 0, void 0, function* () {
         try {
-            // await getEncryptedFiles();
-            yield getAssetDigest(null);
+            yield getEncryptedFiles();
+            // await getAssetDigest(null);
             yield decrypt();
         }
         catch (e) {

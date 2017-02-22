@@ -27,6 +27,9 @@ async function getAssetDigest(client: pogobuf.Client): Promise<POGOProtos.Networ
             (<any>digest).key = digest.key.toString('hex');
         });
 
+        // get only 2d sprites
+        globalAssets.digest = _.filter(globalAssets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
+
         logger.info('Save asset digest to file...');
         await fs.writeFile('data/asset.digest.json', JSON.stringify(globalAssets, null, 4), 'utf8');
 
@@ -40,19 +43,20 @@ async function downloadAssets(client: pogobuf.Client, assets: POGOProtos.Network
     let idx = 0;
     logger.info('Starting to download assets...');
     await Bluebird.map(assets.digest, async asset => {
-        logger.info('Get asset from %s (%d, %d)', asset.bundle_name, ++idx, assets.digest.length);
         let response = await client.getDownloadURLs([ asset.asset_id ]);
         let data = await request.get(response.download_urls[0].url);
         await fs.writeFile(`data/${asset.bundle_name}`, data);
         logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, assets.digest.length);
         await Bluebird.delay(_.random(450, 550));
-    });
+    }, { concurrency: 1 });
 
     await fs.writeFile('data/.skip', 'skip', 'utf8');
 }
 
 async function getEncryptedFiles() {
-    await fs.mkdir('data');
+    try {
+        await fs.mkdir('data');
+    } catch (e) {}
 
     logger.info('Login...');
     let login = new pogobuf.PTCLogin();
@@ -98,9 +102,11 @@ async function decrypt() {
 
     let assetInfo = _.find(globalAssets.digest, asset => asset.bundle_name === bundle);
     let iv = data.slice(1, 17);
-    let encrypted = data.slice(18, data.length - 20);
-    let mask = Buffer.from('50464169243B5D473752673E6B7A3477', 'hex');
+    let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
     let key = xor(mask, Buffer.from((<any>assetInfo).key, 'hex'));
+
+    let encrypted = data.slice(18, data.length - 20);
+    if ((encrypted.length & 0x0F) !== 0) throw new Error('Invalid data length');
 
     let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
     let decrypted = Buffer.concat([decipher.update(encrypted) , decipher.final()]);
@@ -118,8 +124,8 @@ logger.add(logger.transports.Console, {
 
 async function Main() {
     try {
-        // await getEncryptedFiles();
-        await getAssetDigest(null);
+        await getEncryptedFiles();
+        // await getAssetDigest(null);
         await decrypt();
     } catch (e) {
         logger.error(e);
