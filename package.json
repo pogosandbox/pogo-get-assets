@@ -1,35 +1,35 @@
 {
   "name": "pogo-get-assets",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "",
   "main": "index.js",
   "author": "niico",
   "license": "MIT",
   "engines": {
-    "node": ">=6.0.0"
+    "node": ">=7.0.0"
   },
   "dependencies": {
-    "@types/request": "0.0.40",
-    "@types/request-promise": "^4.1.33",
-    "bluebird": "^3.4.7",
+    "bluebird": "^3.5.0",
     "dotenv": "^4.0.0",
-    "fs-promise": "^1.0.0",
+    "fs-promise": "^2.0.2",
     "lodash": "^4.17.4",
-    "moment": "^2.17.1",
-    "pogobuf": "pogosandbox/pogobuf",
-    "request": "^2.79.0",
-    "request-promise": "^4.1.1",
+    "moment": "^2.18.1",
+    "pogobuf": "pogosandbox/pogobuf#dev",
+    "request": "^2.81.0",
+    "request-promise": "^4.2.0",
     "winston": "^2.3.1"
   },
   "devDependencies": {
-    "@types/bluebird": "^3.0.37",
+    "@types/bluebird": "^3.5.2",
     "@types/bytebuffer": "^5.0.33",
-    "@types/fs-promise": "^1.0.1",
-    "@types/lodash": "^4.14.52",
+    "@types/fs-promise": "^1.0.2",
+    "@types/lodash": "^4.14.62",
     "@types/long": "^3.0.31",
-    "@types/node": "^7.0.5",
-    "@types/winston": "^2.2.0",
-    "tslint": "^4.4.2",
-    "typescript": "^2.1.6"
+    "@types/node": "^7.0.12",
+    "@types/request": "0.0.42",
+    "@types/request-promise": "^4.1.33",
+    "@types/winston": "^2.3.0",
+    "tslint": "^5.1.0",
+    "typescript": "^2.2.2"
   }
 }

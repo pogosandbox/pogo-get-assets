@@ -12,6 +12,15 @@
             "cwd": "${workspaceRoot}",
             "outFiles": [ "${workspaceRoot}/bin/**/*.js" ],
             "sourceMaps": true
+        },
+        {
+            "type": "node",
+            "request": "launch",
+            "name": "debug",
+            "program": "${workspaceRoot}/src/debug.ts",
+            "cwd": "${workspaceRoot}",
+            "outFiles": [ "${workspaceRoot}/bin/**/*.js" ],
+            "sourceMaps": true
         }
     ]
 }

@@ -11,79 +11,86 @@ import * as request from 'request-promise';
 
 let crypto = require('crypto');
 
-let globalAssets: POGOProtos.Networking.Responses.GetAssetDigestResponse = null;
+const RequestType = POGOProtos.Networking.Requests.RequestType;
+
+let state = {
+    actions: {
+        getTranslations: true,
+        downloadAssets: false,
+    },
+    assets: <POGOProtos.Networking.Responses.GetAssetDigestResponse> null,
+    translationSettings: null,
+};
+
+async function init(): Promise<pogobuf.Client> {
+    try {
+        await fs.mkdir('data');
+    } catch (e) {}
+
+    logger.info('Connecting to pogo servers...');
+
+    let client = new pogobuf.Client({
+        authType: 'ptc',
+        username: process.env.user,
+        password: process.env.password,
+        version: 6100,
+        useHashingServer: true,
+        hashingKey: process.env.hashkey,
+        includeRequestTypeInResponse: true,
+        proxy: process.env.proxy,
+    });
+
+    let initial = await client.init();
+    _.each(initial, response => {
+        if (response._requestType === RequestType.DOWNLOAD_SETTINGS) {
+            let downloadSettings = response.settings;
+            state.translationSettings = downloadSettings.translation_settings;
+        }
+    });
+
+    return client;
+}
 
 async function getAssetDigest(client: pogobuf.Client): Promise<POGOProtos.Networking.Responses.GetAssetDigestResponse> {
     if (fs.existsSync('data/asset.digest.json')) {
         logger.info('Get asset digest from disk...');
         let content = await fs.readFile('data/asset.digest.json', 'utf8');
-        globalAssets = JSON.parse(content);
-        return globalAssets;
+        state.assets = JSON.parse(content);
     } else {
         logger.info('Get asset digest from server...');
-        globalAssets = await client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', 5702);
-        _.each(globalAssets.digest, digest => {
-            // convert buffer to hex string so it's readable
+        state.assets = await client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', 5702);
+        _.each(state.assets.digest, digest => {
+            // convert buffer to hex string so it's readable and more compact
             (<any>digest).key = digest.key.toString('hex');
         });
 
-        // get only 2d sprites
-        globalAssets.digest = _.filter(globalAssets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
-
         logger.info('Save asset digest to file...');
-        await fs.writeFile('data/asset.digest.json', JSON.stringify(globalAssets, null, 4), 'utf8');
-
-        return globalAssets;
+        await fs.writeFile('data/asset.digest.json', JSON.stringify(state.assets, null, 2), 'utf8');
     }
+
+    return state.assets;
 }
 
-async function downloadAssets(client: pogobuf.Client, assets: POGOProtos.Networking.Responses.GetAssetDigestResponse) {
+async function downloadAssets(client: pogobuf.Client) {
     if (fs.existsSync('data/.skip')) return;
+
+    // get only 2D sprites
+    state.assets.digest = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
+
+    logger.info('%d assets to download', state.assets.digest.length);
 
     let idx = 0;
     logger.info('Starting to download assets...');
-    await Bluebird.map(assets.digest, async asset => {
+    await Bluebird.map(state.assets.digest, async asset => {
         let response = await client.getDownloadURLs([ asset.asset_id ]);
         let data = await request.get(response.download_urls[0].url);
         await fs.writeFile(`data/${asset.bundle_name}`, data);
-        logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, assets.digest.length);
+        logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, state.assets.digest.length);
         await Bluebird.delay(_.random(450, 550));
     }, { concurrency: 1 });
 
+    // so we don't download again at next launch
     await fs.writeFile('data/.skip', 'skip', 'utf8');
-}
-
-async function getEncryptedFiles() {
-    try {
-        await fs.mkdir('data');
-    } catch (e) {}
-
-    logger.info('Login...');
-    let login = new pogobuf.PTCLogin();
-    if (process.env.proxy) login.setProxy(process.env.proxy);
-    let token = await login.login(process.env.user, process.env.password);
-
-    let client = new pogobuf.Client({
-        authType: 'ptc',
-        authToken: token,
-        version: 4500,
-        useHashingServer: false,
-        hashingKey: null,
-        mapObjectsThrottling: false,
-        includeRequestTypeInResponse: true,
-        proxy: process.env.proxy,
-    });
-
-    await client.init(false);
-
-    logger.info('First request...');
-    client.batchStart().getPlayer('FR', 'en', 'Europe/Paris');
-    await client.batchCall();
-
-    let assets = await getAssetDigest(client);
-    logger.info('%d assets to download', assets.digest.length);
-
-    await downloadAssets(client, assets);
 }
 
 function xor(a: Buffer, b: Buffer): Buffer {
@@ -95,12 +102,10 @@ function xor(a: Buffer, b: Buffer): Buffer {
     return buffer;
 }
 
-async function decrypt() {
-    let bundle = 'pokemon_icon_001';
-    let data = await fs.readFile(`data/${bundle}`);
-    if (data[0] !== 1) throw new Error('Incorrect data in file');
+async function decrypt(bundle, data) {
+    // if (data[0] !== 1) throw new Error('Incorrect data in file');
 
-    let assetInfo = _.find(globalAssets.digest, asset => asset.bundle_name === bundle);
+    let assetInfo = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
     let iv = data.slice(1, 17);
     let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
     let key = xor(mask, Buffer.from((<any>assetInfo).key, 'hex'));
@@ -110,7 +115,19 @@ async function decrypt() {
 
     let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
     let decrypted = Buffer.concat([decipher.update(encrypted) , decipher.final()]);
-    await fs.writeFile(`data/${bundle}.png`, decrypted);
+
+    return decrypted;
+}
+
+async function getTranslations(client: pogobuf.Client) {
+    await Bluebird.each(state.translationSettings.translation_bundle_ids, async bundle => {
+        let asset = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
+        let response = await client.getDownloadURLs([ asset.asset_id ]);
+        let data = await request.get(response.download_urls[0].url);
+        data = decrypt(bundle, data);
+        await fs.writeFile(`data/${asset.bundle_name}`, data);
+        logger.info('%s downloaded.', asset.bundle_name);
+    });
 }
 
 logger.remove(logger.transports.Console);
@@ -124,9 +141,18 @@ logger.add(logger.transports.Console, {
 
 async function Main() {
     try {
-        await getEncryptedFiles();
-        // await getAssetDigest(null);
-        await decrypt();
+        let client = await init();
+        await getAssetDigest(client);
+
+        if (state.actions.getTranslations) {
+            await getTranslations(client);
+        }
+
+        if (state.actions.downloadAssets) {
+            await downloadAssets(client);
+            // await getAssetDigest(null);
+            await decrypt();
+        }
     } catch (e) {
         logger.error(e);
     }
