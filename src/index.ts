@@ -83,7 +83,7 @@ async function downloadAssets(client: pogobuf.Client) {
     logger.info('Starting to download assets...');
     await Bluebird.map(state.assets.digest, async asset => {
         let response = await client.getDownloadURLs([ asset.asset_id ]);
-        let data = await request.get(response.download_urls[0].url);
+        let data = await request.get(response.download_urls[0].url, { encoding: null });
         await fs.writeFile(`data/${asset.bundle_name}`, data);
         logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, state.assets.digest.length);
         await Bluebird.delay(_.random(450, 550));
@@ -97,20 +97,20 @@ function xor(a: Buffer, b: Buffer): Buffer {
     let length = Math.max(a.length, b.length);
     let buffer = Buffer.alloc(length);
     for (let i = 0; i < length; ++i) {
-        buffer[i] = a[i] ^ b[i]
+        buffer[i] = a[i] ^ b[i];
     }
     return buffer;
 }
 
-async function decrypt(bundle, data) {
-    // if (data[0] !== 1) throw new Error('Incorrect data in file');
+function decrypt(bundle: string, data: Buffer): Buffer {
+    if (data[0] !== 1) throw new Error('Incorrect data in file');
 
     let assetInfo = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
     let iv = data.slice(1, 17);
     let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
     let key = xor(mask, Buffer.from((<any>assetInfo).key, 'hex'));
 
-    let encrypted = data.slice(18, data.length - 20);
+    let encrypted = data.slice(17, data.length - 20);
     if ((encrypted.length & 0x0F) !== 0) throw new Error('Invalid data length');
 
     let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
@@ -120,12 +120,12 @@ async function decrypt(bundle, data) {
 }
 
 async function getTranslations(client: pogobuf.Client) {
-    await Bluebird.each(state.translationSettings.translation_bundle_ids, async bundle => {
-        let asset = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
+    let i18s = _.filter(state.assets.digest, digest => _.startsWith(digest.bundle_name, 'i18n_'));
+    await Bluebird.each(i18s, async asset => {
         let response = await client.getDownloadURLs([ asset.asset_id ]);
-        let data = await request.get(response.download_urls[0].url);
-        data = decrypt(bundle, data);
-        await fs.writeFile(`data/${asset.bundle_name}`, data);
+        let data = await request.get(response.download_urls[0].url, { encoding: null });
+        data = decrypt(asset.bundle_name, data);
+        await fs.writeFile(`data/${asset.bundle_name}.text`, data);
         logger.info('%s downloaded.', asset.bundle_name);
     });
 }
@@ -146,12 +146,15 @@ async function Main() {
 
         if (state.actions.getTranslations) {
             await getTranslations(client);
+            // let data = await fs.readFile('data/i18n_user_tasks');
+            // data = decrypt('i18n_user_tasks', data);
+            // await fs.writeFile('data/i18n_user_tasks.txt', data);
         }
 
         if (state.actions.downloadAssets) {
             await downloadAssets(client);
             // await getAssetDigest(null);
-            await decrypt();
+            // await decrypt();
         }
     } catch (e) {
         logger.error(e);

@@ -85,7 +85,7 @@ function downloadAssets(client) {
         logger.info('Starting to download assets...');
         yield Bluebird.map(state.assets.digest, (asset) => __awaiter(this, void 0, void 0, function* () {
             let response = yield client.getDownloadURLs([asset.asset_id]);
-            let data = yield request.get(response.download_urls[0].url);
+            let data = yield request.get(response.download_urls[0].url, { encoding: null });
             yield fs.writeFile(`data/${asset.bundle_name}`, data);
             logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, state.assets.digest.length);
             yield Bluebird.delay(_.random(450, 550));
@@ -103,28 +103,27 @@ function xor(a, b) {
     return buffer;
 }
 function decrypt(bundle, data) {
-    return __awaiter(this, void 0, void 0, function* () {
-        // if (data[0] !== 1) throw new Error('Incorrect data in file');
-        let assetInfo = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
-        let iv = data.slice(1, 17);
-        let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
-        let key = xor(mask, Buffer.from(assetInfo.key, 'hex'));
-        let encrypted = data.slice(18, data.length - 20);
-        if ((encrypted.length & 0x0F) !== 0)
-            throw new Error('Invalid data length');
-        let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
-        let decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-        return decrypted;
-    });
+    if (data[0] !== 1)
+        throw new Error('Incorrect data in file');
+    let assetInfo = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
+    let iv = data.slice(1, 17);
+    let mask = Buffer.from('50464169243b5d473752673e6b7a3477', 'hex');
+    let key = xor(mask, Buffer.from(assetInfo.key, 'hex'));
+    let encrypted = data.slice(17, data.length - 20);
+    if ((encrypted.length & 0x0F) !== 0)
+        throw new Error('Invalid data length');
+    let decipher = crypto.createDecipheriv('aes-128-cbc', key, iv);
+    let decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted;
 }
 function getTranslations(client) {
     return __awaiter(this, void 0, void 0, function* () {
-        yield Bluebird.each(state.translationSettings.translation_bundle_ids, (bundle) => __awaiter(this, void 0, void 0, function* () {
-            let asset = _.find(state.assets.digest, asset => asset.bundle_name === bundle);
+        let i18s = _.filter(state.assets.digest, digest => _.startsWith(digest.bundle_name, 'i18n_'));
+        yield Bluebird.each(i18s, (asset) => __awaiter(this, void 0, void 0, function* () {
             let response = yield client.getDownloadURLs([asset.asset_id]);
-            let data = yield request.get(response.download_urls[0].url);
-            data = decrypt(bundle, data);
-            yield fs.writeFile(`data/${asset.bundle_name}`, data);
+            let data = yield request.get(response.download_urls[0].url, { encoding: null });
+            data = decrypt(asset.bundle_name, data);
+            yield fs.writeFile(`data/${asset.bundle_name}.text`, data);
             logger.info('%s downloaded.', asset.bundle_name);
         }));
     });
@@ -144,11 +143,14 @@ function Main() {
             yield getAssetDigest(client);
             if (state.actions.getTranslations) {
                 yield getTranslations(client);
+                // let data = await fs.readFile('data/i18n_user_tasks');
+                // data = decrypt('i18n_user_tasks', data);
+                // await fs.writeFile('data/i18n_user_tasks.txt', data);
             }
             if (state.actions.downloadAssets) {
                 yield downloadAssets(client);
                 // await getAssetDigest(null);
-                yield decrypt();
+                // await decrypt();
             }
         }
         catch (e) {
