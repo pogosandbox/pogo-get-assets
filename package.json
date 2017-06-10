@@ -1,6 +1,6 @@
 {
   "name": "pogo-get-assets",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "",
   "main": "index.js",
   "author": "niico",
@@ -11,25 +11,24 @@
   "dependencies": {
     "bluebird": "^3.5.0",
     "dotenv": "^4.0.0",
-    "fs-promise": "^2.0.2",
     "lodash": "^4.17.4",
     "moment": "^2.18.1",
-    "pogobuf": "pogosandbox/pogobuf#dev",
+    "mz": "^2.6.0",
+    "pogobuf-vnext": "^2.1.0",
     "request": "^2.81.0",
     "request-promise": "^4.2.0",
     "winston": "^2.3.1"
   },
   "devDependencies": {
-    "@types/bluebird": "^3.5.2",
+    "@types/bluebird": "^3.5.5",
     "@types/bytebuffer": "^5.0.33",
-    "@types/fs-promise": "^1.0.2",
-    "@types/lodash": "^4.14.62",
+    "@types/fs-promise": "^1.0.3",
     "@types/long": "^3.0.31",
-    "@types/node": "^7.0.12",
-    "@types/request": "0.0.42",
+    "@types/node": "^7.0.29",
+    "@types/request": "0.0.43",
     "@types/request-promise": "^4.1.33",
-    "@types/winston": "^2.3.0",
-    "tslint": "^5.1.0",
-    "typescript": "^2.2.2"
+    "@types/winston": "^2.3.3",
+    "tslint": "^5.4.3",
+    "typescript": "^2.3.4"
   }
 }

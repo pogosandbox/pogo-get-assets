@@ -1,24 +1,28 @@
 require('dotenv').config({silent: true});
 
-import * as pogobuf from 'pogobuf';
+import * as pogobuf from 'pogobuf-vnext';
 import * as POGOProtos from 'node-pogo-protos';
 import * as logger from 'winston';
 import * as Bluebird from 'bluebird';
 import * as _ from 'lodash';
 import * as moment from 'moment';
-import * as fs from 'fs-promise';
+import * as fs from 'mz/fs';
 import * as request from 'request-promise';
 
 let crypto = require('crypto');
+const winstonCommon = require('winston/lib/winston/common');
 
 const RequestType = POGOProtos.Networking.Requests.RequestType;
 
 let state = {
     actions: {
-        getTranslations: true,
-        downloadAssets: false,
+        getTranslations: false,
+        download2DAssets: false,
+        download3DAssets: true,
     },
-    assets: <POGOProtos.Networking.Responses.GetAssetDigestResponse> null,
+    assets: {
+        digest: [],
+    },
     translationSettings: null,
 };
 
@@ -33,7 +37,7 @@ async function init(): Promise<pogobuf.Client> {
         authType: 'ptc',
         username: process.env.user,
         password: process.env.password,
-        version: 6100,
+        version: 6301,
         useHashingServer: true,
         hashingKey: process.env.hashkey,
         includeRequestTypeInResponse: true,
@@ -51,14 +55,15 @@ async function init(): Promise<pogobuf.Client> {
     return client;
 }
 
-async function getAssetDigest(client: pogobuf.Client): Promise<POGOProtos.Networking.Responses.GetAssetDigestResponse> {
+async function getAssetDigest(client: pogobuf.Client) {
     if (fs.existsSync('data/asset.digest.json')) {
         logger.info('Get asset digest from disk...');
         let content = await fs.readFile('data/asset.digest.json', 'utf8');
         state.assets = JSON.parse(content);
     } else {
         logger.info('Get asset digest from server...');
-        state.assets = await client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', 5702);
+        const version = (<any>client).options.version;
+        state.assets = await client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', version);
         _.each(state.assets.digest, digest => {
             // convert buffer to hex string so it's readable and more compact
             (<any>digest).key = digest.key.toString('hex');
@@ -71,26 +76,48 @@ async function getAssetDigest(client: pogobuf.Client): Promise<POGOProtos.Networ
     return state.assets;
 }
 
-async function downloadAssets(client: pogobuf.Client) {
-    if (fs.existsSync('data/.skip')) return;
+async function download2DAssets(client: pogobuf.Client) {
+    try {
+        await fs.mkdir('data/2D');
+    } catch (e) { /* nevermind */ }
 
     // get only 2D sprites
-    state.assets.digest = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
+    let digest: any[] = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
 
-    logger.info('%d assets to download', state.assets.digest.length);
+    logger.info('%d assets to download', digest.length);
 
     let idx = 0;
     logger.info('Starting to download assets...');
-    await Bluebird.map(state.assets.digest, async asset => {
+    await Bluebird.map(digest, async asset => {
         let response = await client.getDownloadURLs([ asset.asset_id ]);
         let data = await request.get(response.download_urls[0].url, { encoding: null });
+        data = decrypt(asset.bundle_name, data);
         await fs.writeFile(`data/${asset.bundle_name}`, data);
-        logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, state.assets.digest.length);
+        logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, digest.length);
         await Bluebird.delay(_.random(450, 550));
     }, { concurrency: 1 });
+}
 
-    // so we don't download again at next launch
-    await fs.writeFile('data/.skip', 'skip', 'utf8');
+async function download3DAssets(client: pogobuf.Client) {
+    try {
+        await fs.mkdir('data/3D');
+    } catch (e) { /* nevermind */ }
+
+    // get only 3D sprites
+    let digest: any[] = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pm0'));
+
+    logger.info('%d assets to download', digest.length);
+
+    let idx = 0;
+    logger.info('Starting to download 3D assets...');
+    await Bluebird.map(digest, async asset => {
+        let response = await client.getDownloadURLs([ asset.asset_id ]);
+        let data = await request.get(response.download_urls[0].url, { encoding: null });
+        data = decrypt(asset.bundle_name, data);
+        await fs.writeFile(`data/3D/${asset.bundle_name}`, data);
+        logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, digest.length);
+        await Bluebird.delay(_.random(450, 550));
+    }, { concurrency: 1 });
 }
 
 function xor(a: Buffer, b: Buffer): Buffer {
@@ -120,7 +147,7 @@ function decrypt(bundle: string, data: Buffer): Buffer {
 }
 
 async function getTranslations(client: pogobuf.Client) {
-    let i18s = _.filter(state.assets.digest, digest => _.startsWith(digest.bundle_name, 'i18n_'));
+    let i18s: any[] = _.filter(state.assets.digest, digest => _.startsWith(digest.bundle_name, 'i18n_'));
     await Bluebird.each(i18s, async asset => {
         let response = await client.getDownloadURLs([ asset.asset_id ]);
         let data = await request.get(response.download_urls[0].url, { encoding: null });
@@ -129,6 +156,16 @@ async function getTranslations(client: pogobuf.Client) {
         logger.info('%s downloaded.', asset.bundle_name);
     });
 }
+
+logger.transports.Console.prototype.log = function (level, message, meta, callback) {
+    const output = winstonCommon.log(Object.assign({}, this, {
+        level,
+        message,
+        meta,
+    }));
+    console[level in console ? level : 'log'](output);
+    setImmediate(callback, null, true);
+};
 
 logger.remove(logger.transports.Console);
 logger.add(logger.transports.Console, {
@@ -146,15 +183,14 @@ async function Main() {
 
         if (state.actions.getTranslations) {
             await getTranslations(client);
-            // let data = await fs.readFile('data/i18n_user_tasks');
-            // data = decrypt('i18n_user_tasks', data);
-            // await fs.writeFile('data/i18n_user_tasks.txt', data);
         }
 
-        if (state.actions.downloadAssets) {
-            await downloadAssets(client);
-            // await getAssetDigest(null);
-            // await decrypt();
+        if (state.actions.download2DAssets) {
+            await download2DAssets(client);
+        }
+
+        if (state.actions.download3DAssets) {
+            await download3DAssets(client);
         }
     } catch (e) {
         logger.error(e);

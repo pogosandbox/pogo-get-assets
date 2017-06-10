@@ -9,22 +9,26 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 };
 Object.defineProperty(exports, "__esModule", { value: true });
 require('dotenv').config({ silent: true });
-const pogobuf = require("pogobuf");
+const pogobuf = require("pogobuf-vnext");
 const POGOProtos = require("node-pogo-protos");
 const logger = require("winston");
 const Bluebird = require("bluebird");
 const _ = require("lodash");
 const moment = require("moment");
-const fs = require("fs-promise");
+const fs = require("mz/fs");
 const request = require("request-promise");
 let crypto = require('crypto');
+const winstonCommon = require('winston/lib/winston/common');
 const RequestType = POGOProtos.Networking.Requests.RequestType;
 let state = {
     actions: {
-        getTranslations: true,
-        downloadAssets: false,
+        getTranslations: false,
+        download2DAssets: false,
+        download3DAssets: true,
     },
-    assets: null,
+    assets: {
+        digest: [],
+    },
     translationSettings: null,
 };
 function init() {
@@ -38,7 +42,7 @@ function init() {
             authType: 'ptc',
             username: process.env.user,
             password: process.env.password,
-            version: 6100,
+            version: 6301,
             useHashingServer: true,
             hashingKey: process.env.hashkey,
             includeRequestTypeInResponse: true,
@@ -63,7 +67,8 @@ function getAssetDigest(client) {
         }
         else {
             logger.info('Get asset digest from server...');
-            state.assets = yield client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', 5702);
+            const version = client.options.version;
+            state.assets = yield client.getAssetDigest(POGOProtos.Enums.Platform.IOS, '', '', '', version);
             _.each(state.assets.digest, digest => {
                 // convert buffer to hex string so it's readable and more compact
                 digest.key = digest.key.toString('hex');
@@ -74,24 +79,46 @@ function getAssetDigest(client) {
         return state.assets;
     });
 }
-function downloadAssets(client) {
+function download2DAssets(client) {
     return __awaiter(this, void 0, void 0, function* () {
-        if (fs.existsSync('data/.skip'))
-            return;
+        try {
+            yield fs.mkdir('data/2D');
+        }
+        catch (e) { }
         // get only 2D sprites
-        state.assets.digest = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
-        logger.info('%d assets to download', state.assets.digest.length);
+        let digest = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pokemon_icon_'));
+        logger.info('%d assets to download', digest.length);
         let idx = 0;
         logger.info('Starting to download assets...');
-        yield Bluebird.map(state.assets.digest, (asset) => __awaiter(this, void 0, void 0, function* () {
+        yield Bluebird.map(digest, (asset) => __awaiter(this, void 0, void 0, function* () {
             let response = yield client.getDownloadURLs([asset.asset_id]);
             let data = yield request.get(response.download_urls[0].url, { encoding: null });
+            data = decrypt(asset.bundle_name, data);
             yield fs.writeFile(`data/${asset.bundle_name}`, data);
-            logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, state.assets.digest.length);
+            logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, digest.length);
             yield Bluebird.delay(_.random(450, 550));
         }), { concurrency: 1 });
-        // so we don't download again at next launch
-        yield fs.writeFile('data/.skip', 'skip', 'utf8');
+    });
+}
+function download3DAssets(client) {
+    return __awaiter(this, void 0, void 0, function* () {
+        try {
+            yield fs.mkdir('data/3D');
+        }
+        catch (e) { }
+        // get only 3D sprites
+        let digest = _.filter(state.assets.digest, asset => _.startsWith(asset.bundle_name, 'pm0'));
+        logger.info('%d assets to download', digest.length);
+        let idx = 0;
+        logger.info('Starting to download 3D assets...');
+        yield Bluebird.map(digest, (asset) => __awaiter(this, void 0, void 0, function* () {
+            let response = yield client.getDownloadURLs([asset.asset_id]);
+            let data = yield request.get(response.download_urls[0].url, { encoding: null });
+            data = decrypt(asset.bundle_name, data);
+            yield fs.writeFile(`data/3D/${asset.bundle_name}`, data);
+            logger.info('%s done. (%d, %d)', asset.bundle_name, ++idx, digest.length);
+            yield Bluebird.delay(_.random(450, 550));
+        }), { concurrency: 1 });
     });
 }
 function xor(a, b) {
@@ -128,6 +155,15 @@ function getTranslations(client) {
         }));
     });
 }
+logger.transports.Console.prototype.log = function (level, message, meta, callback) {
+    const output = winstonCommon.log(Object.assign({}, this, {
+        level,
+        message,
+        meta,
+    }));
+    console[level in console ? level : 'log'](output);
+    setImmediate(callback, null, true);
+};
 logger.remove(logger.transports.Console);
 logger.add(logger.transports.Console, {
     'timestamp': function () {
@@ -143,14 +179,12 @@ function Main() {
             yield getAssetDigest(client);
             if (state.actions.getTranslations) {
                 yield getTranslations(client);
-                // let data = await fs.readFile('data/i18n_user_tasks');
-                // data = decrypt('i18n_user_tasks', data);
-                // await fs.writeFile('data/i18n_user_tasks.txt', data);
             }
-            if (state.actions.downloadAssets) {
-                yield downloadAssets(client);
-                // await getAssetDigest(null);
-                // await decrypt();
+            if (state.actions.download2DAssets) {
+                yield download2DAssets(client);
+            }
+            if (state.actions.download3DAssets) {
+                yield download3DAssets(client);
             }
         }
         catch (e) {
