@@ -23,8 +23,8 @@ const RequestType = POGOProtos.Networking.Requests.RequestType;
 let state = {
     actions: {
         getTranslations: false,
-        download2DAssets: false,
-        download3DAssets: true,
+        download2DAssets: true,
+        download3DAssets: false,
     },
     assets: {
         digest: [],
