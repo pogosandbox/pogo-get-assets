@@ -1,7 +1,7 @@
 require('dotenv').config({silent: true});
 
 import * as pogobuf from 'pogobuf-vnext';
-import * as POGOProtos from 'node-pogo-protos';
+import * as POGOProtos from 'node-pogo-protos-vnext';
 import * as logger from 'winston';
 import * as Bluebird from 'bluebird';
 import * as _ from 'lodash';

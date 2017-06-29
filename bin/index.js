@@ -10,7 +10,7 @@ var __awaiter = (this && this.__awaiter) || function (thisArg, _arguments, P, ge
 Object.defineProperty(exports, "__esModule", { value: true });
 require('dotenv').config({ silent: true });
 const pogobuf = require("pogobuf-vnext");
-const POGOProtos = require("node-pogo-protos");
+const POGOProtos = require("node-pogo-protos-vnext");
 const logger = require("winston");
 const Bluebird = require("bluebird");
 const _ = require("lodash");
